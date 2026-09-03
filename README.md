@@ -1,0 +1,103 @@
+# GIS Viewer · 浏览器端空间数据查看器
+
+纯浏览器端的 GIS 数据查看器：**拖入任意 Shapefile / GeoTIFF / GeoJSON / CSV，立刻在地图上看到结果**，无需任何后端服务、无需数据库、无需联网（底图除外）。
+
+> 所有解析、坐标系识别、重投影、栅格渲染都在你的浏览器里完成。整个项目是静态文件，可直接部署到 GitHub Pages 或任意静态服务器。
+
+---
+
+## 功能
+
+- **拖拽即显示**：把文件拖到地图上，或点「导入数据」选择文件，支持多选。
+- **矢量格式**
+  - Shapefile：`.shp`+`.dbf`+`.prj`（多文件一起拖入），或打包好的 `.zip`
+  - GeoJSON / JSON
+  - CSV（自动识别 `lon/lat` 或 `x/y` 经纬度列）
+- **栅格格式**
+  - GeoTIFF：`.tif` / `.tiff`，单波段自动 2%~98% 拉伸 + 色带，多波段 RGB 合成，NoData 透明
+- **坐标系自动识别与重投影**
+  - 从 `.prj` / GeoTIFF 元数据中读取 EPSG，识别不了时弹窗让你手选
+  - 内置国内常用坐标系（CGCS2000 三度带/六度带、UTM、WGS84 等），自动重投影到 WGS84 叠加到在线底图上
+- **图层管理**：开关、透明度、颜色、删除、缩放到范围；点要素可查看属性表
+- **底图切换**：ESRI 影像 / 街道、OSM、无底图，可叠加地名注记
+- **配套分析脚本**：`analyze/kde_hotspot.py` 对任意点数据做高斯核密度热点分析，输出热力 GeoJSON 供前端叠加
+
+---
+
+## 快速开始
+
+**方式一：直接打开**
+双击 `index.html` 即可使用。脚本已同步输出一份 JSONP 风格的 `.js` 数据通道，规避 `file://` 协议下浏览器拦截本地文件读取的问题。
+
+**方式二：本地服务器（推荐，体验最完整）**
+```bash
+cd gis-viewer
+python -m http.server 8080
+# 浏览器打开 http://localhost:8080/index.html
+```
+
+---
+
+## 数据格式支持
+
+| 类型 | 格式 | 备注 |
+|------|------|------|
+| 矢量 | `.shp` + `.dbf` + `.prj` | 多文件一起拖入（或打包 `.zip`） |
+| 矢量 | `.geojson` / `.json` | 标准 GeoJSON，默认 WGS84 |
+| 矢量 | `.csv` | 需含经纬度列（lon/lat、x/y、经度/纬度 等） |
+| 栅格 | `.tif` / `.tiff` | GeoTIFF，含地理坐标与坐标系信息 |
+
+**坐标系说明**：Shapefile 的坐标本身不带坐标系含义，写在同名的 `.prj` 文件里。若缺少 `.prj`，地图会提示你手动选择数据实际使用的坐标系——选错会导致整体偏移，拿不准时先选「不做转换」看形状是否正确。
+
+---
+
+## 核密度热点分析（可选）
+
+适合把「点状数据」变成「热力分布」。脚本与前端解耦，不用它也能直接拖入已有数据。
+
+```bash
+# 1. 把你的点数据放到 data/points.geojson（或改 analyze/kde_hotspot.py 顶部的 DATA_PATH）
+# 2. 修改顶部参数（带宽、网格、坐标系、研究区边界等）
+# 3. 运行
+python analyze/kde_hotspot.py
+# 生成 output/hotspot.geojson、output/points.geojson、output/hotspot_meta.json
+# 把 output/ 拖进 index.html 即可查看热力图
+```
+
+输入点数据要求：几何为 Point/MultiPoint；坐标系建议 WGS84；可选权重字段（如车辆数、客流量）。
+
+---
+
+## 技术栈
+
+- 地图渲染：[Leaflet](https://leafletjs.com/)
+- 矢量解析：[shpjs](https://github.com/calvinmetcalf/shapefile-js)（含 JSZip 解包）
+- 坐标系：[Proj4js](https://proj4js.org/)
+- 栅格解析：[GeoTIFF.js](https://geotiffjs.github.io/)
+- 所有依赖以本地副本形式放在 `assets/js/vendor/`，离线可用
+
+---
+
+## 目录结构
+
+```
+gis-viewer/
+├── index.html              # 前端入口
+├── assets/
+│   ├── css/               # 样式
+│   └── js/
+│       ├── projection.js  # 坐标系识别与重投影
+│       ├── loader.js      # 多格式空间数据解析
+│       ├── app.js         # 地图、图层管理、属性查看
+│       └── vendor/        # 第三方库本地副本
+├── analyze/
+│   └── kde_hotspot.py     # 通用核密度热点分析脚本
+├── data/                  # 你的数据放这里（可选）
+└── output/                # 分析结果输出
+```
+
+---
+
+## 许可证
+
+[MIT](LICENSE)

@@ -1,0 +1,16 @@
+# ===== 运行时生成的数据（由 analyze/kde_hotspot.py 生成，非源码） =====
+data/
+output/
+
+# ===== 依赖 =====
+node_modules/
+
+# ===== 系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+
+# ===== 临时文件 =====
+*.tmp
+.cache/

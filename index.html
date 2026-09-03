@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>GIS Viewer · 浏览器端空间数据查看器</title>
+<meta name="description" content="纯浏览器端的 GIS 数据查看器：拖入 Shapefile / GeoJSON / CSV / GeoTIFF 即可在地图上显示，支持坐标系自动识别、图层管理与属性查看，无需任何后端服务。" />
+<link rel="stylesheet" href="assets/css/vendor/leaflet.css" />
+<link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- ============ 顶栏 ============ -->
+<header id="topbar" class="panel">
+  <div class="brand">
+    <span class="mark">G</span>
+    <span>GIS Viewer <small>浏览器端空间数据查看器</small></span>
+  </div>
+
+  <button class="btn primary" id="btnImport">导入数据</button>
+  <input type="file" id="fileInput" multiple hidden
+         accept=".shp,.dbf,.prj,.shx,.zip,.geojson,.json,.csv,.txt,.tif,.tiff" />
+
+  <div class="base-group">
+    <button class="btn active" data-base="imagery">影像</button>
+    <button class="btn" data-base="street">街道</button>
+    <button class="btn" data-base="osm">OSM</button>
+    <button class="btn" data-base="none">无底图</button>
+    <button class="btn active" id="btnLabel" title="地名注记开关">注记</button>
+  </div>
+</header>
+
+<!-- ============ 图层面板 ============ -->
+<aside id="sidePanel" class="panel">
+  <div class="sp-head">
+    <h2>图层 <span class="badge" id="layerCount">0</span></h2>
+    <span style="font-size:10.5px;color:var(--text-dim)">悬停展开设置</span>
+  </div>
+  <div class="sp-body" id="layerList"></div>
+</aside>
+
+<!-- ============ 属性面板 ============ -->
+<aside id="propPanel" class="panel">
+  <div class="pp-head">
+    <div style="min-width:0">
+      <h2 id="propTitle">要素属性</h2>
+      <div class="meta" id="propMeta"></div>
+    </div>
+    <button class="pp-close" id="propClose" title="关闭">✕</button>
+  </div>
+  <div class="pp-body" id="propBody"></div>
+</aside>
+
+<!-- ============ 状态栏 ============ -->
+<div id="statusbar" class="panel">
+  <span><span class="k">经度</span> <span class="v" id="cLon">--</span></span>
+  <span class="sep"></span>
+  <span><span class="k">纬度</span> <span class="v" id="cLat">--</span></span>
+  <span class="sep"></span>
+  <span><span class="k">层级</span> <span class="v" id="cZoom">4</span></span>
+  <span class="sep"></span>
+  <span><span class="k">要素</span> <span class="v" id="statFeatures">0</span></span>
+  <span class="sep"></span>
+  <span><span class="k">图层</span> <span class="v" id="statLayers">0</span></span>
+</div>
+
+<!-- ============ 拖放提示 ============ -->
+<div id="dropZone">
+  <div class="box">
+    <div class="ico">🗂️</div>
+    <div class="t">松开鼠标即可加载</div>
+    <div class="s">Shapefile（.shp + .dbf + .prj 或 .zip 包）<br/>
+      GeoJSON · CSV（含经纬度列） · GeoTIFF（.tif）</div>
+  </div>
+</div>
+
+<!-- ============ 加载遮罩 ============ -->
+<div id="loading">
+  <div class="box">
+    <div class="spinner"></div>
+    <div id="loadingMsg">正在解析 …</div>
+  </div>
+</div>
+
+<!-- ============ 坐标系选择 ============ -->
+<div class="modal" id="crsModal">
+  <div class="card">
+    <h3>请指定坐标系</h3>
+    <div class="file" id="crsFile"></div>
+    <div class="hint" id="crsHint"></div>
+    <select id="crsSelect"></select>
+    <div class="hint" style="margin:10px 0 0;font-size:11px;color:var(--text-dim)">
+      提示：数据本身不记录坐标系，选错会导致位置整体偏移。
+      若不确定，可先选「不做转换」看形状是否正确，再回来调整。
+    </div>
+    <div class="foot">
+      <button class="btn ghost" id="crsSkip">跳过该文件</button>
+      <button class="btn primary" id="crsOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============ 依赖库（本地副本，离线可用） ============ -->
+<script src="assets/js/vendor/leaflet.js"></script>
+<script src="assets/js/vendor/shp.min.js"></script>
+<script src="assets/js/vendor/proj4.js"></script>
+<script src="assets/js/vendor/jszip.min.js"></script>
+<script src="assets/js/vendor/geotiff.js"></script>
+
+<!-- ============ 应用代码 ============ -->
+<script src="assets/js/projection.js"></script>
+<script src="assets/js/loader.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
