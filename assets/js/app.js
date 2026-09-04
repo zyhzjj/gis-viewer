@@ -245,6 +245,7 @@
           </div>
           <div class="li-tools">
             <button data-act="zoom" title="缩放到该图层">⤢</button>
+            <button data-act="export" title="${isRaster ? "导出渲染预览 TIFF" : "导出 WGS84 CSV"}">⇩</button>
             <button data-act="del" title="移除图层">✕</button>
           </div>
         </div>
@@ -274,6 +275,17 @@
       const q = sel => item.querySelector(sel);
       q('[data-act="toggle"]').addEventListener("change", e => setVisible(ds, e.target.checked));
       q('[data-act="zoom"]').addEventListener("click", () => zoomToLayer(ds));
+      q('[data-act="export"]').addEventListener("click", async () => {
+        showLoading(`正在导出：${ds.name}`);
+        try {
+          const result = await GISExporter.exportDataset(ds);
+          toast(`已导出：${result.filename}（${result.description}）`);
+        } catch (e) {
+          toast(`导出失败：${e.message}`, "err");
+        } finally {
+          hideLoading();
+        }
+      });
       q('[data-act="del"]').addEventListener("click", () => removeLayer(ds));
       const op = q('[data-act="opacity"]');
       if (op) op.addEventListener("input", e => setOpacity(ds, +e.target.value / 100));
