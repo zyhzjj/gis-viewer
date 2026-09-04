@@ -27,12 +27,18 @@
 
   const BASEMAPS = {
     imagery: L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { maxZoom: 19, attribution: '影像 &copy; Esri, Maxar, Earthstar Geographics' }
+      "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg",
+      {
+        maxNativeZoom: 14, maxZoom: 19,
+        attribution: 'Sentinel-2 cloudless &copy; <a href="https://s2maps.eu">EOX</a>, Copernicus 2020'
+      }
     ),
     street: L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-      { maxZoom: 19, attribution: "街道 &copy; Esri" }
+      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      {
+        subdomains: "abcd", maxZoom: 20,
+        attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      }
     ),
     osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }),
@@ -40,14 +46,55 @@
   };
   // 地名注记层，独立于底图层，可单独开关
   BASEMAPS.labels = L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 19, opacity: 0.9 }
+    "https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png",
+    { subdomains: "abcd", maxZoom: 20, opacity: 0.9, attribution: '&copy; CARTO' }
   );
 
   let currentBase = "imagery";
+  let showLabels = true;
+
+  function activateBase(key) {
+    if (!BASEMAPS[key] || key === "labels") return;
+    document.querySelectorAll("[data-base]").forEach(btn =>
+      btn.classList.toggle("active", btn.dataset.base === key));
+    Object.keys(BASEMAPS).forEach(k => {
+      if (k !== "labels" && map.hasLayer(BASEMAPS[k])) map.removeLayer(BASEMAPS[k]);
+    });
+    if (key !== "none") BASEMAPS[key].addTo(map);
+    currentBase = key;
+    // 注记始终压在底图之上。
+    if (showLabels && map.hasLayer(BASEMAPS.labels)) {
+      map.removeLayer(BASEMAPS.labels);
+      BASEMAPS.labels.addTo(map);
+    }
+  }
+
+  const failureCount = {};
+  const baseNames = { imagery: "影像", street: "街道", osm: "OSM", none: "无底图" };
+  [["imagery", "影像", "street"], ["street", "街道", "osm"], ["osm", "OSM", "none"]]
+    .forEach(([key, name, fallback]) => {
+      BASEMAPS[key].on("tileload", () => { failureCount[key] = 0; });
+      BASEMAPS[key].on("tileerror", () => {
+        failureCount[key] = (failureCount[key] || 0) + 1;
+        if (failureCount[key] === 3 && currentBase === key) {
+          activateBase(fallback);
+          toast(`${name}底图连接失败，已自动切换到${baseNames[fallback]}`, "err");
+        }
+      });
+    });
+  BASEMAPS.labels.on("tileerror", () => {
+    failureCount.labels = (failureCount.labels || 0) + 1;
+    if (failureCount.labels === 3 && showLabels) {
+      showLabels = false;
+      map.removeLayer(BASEMAPS.labels);
+      document.getElementById("btnLabel").classList.remove("active");
+      toast("地名注记连接失败，已自动关闭注记", "err");
+    }
+  });
+  BASEMAPS.labels.on("tileload", () => { failureCount.labels = 0; });
+
   BASEMAPS.imagery.addTo(map);
   BASEMAPS.labels.addTo(map);
-  let showLabels = true;
 
   L.control.zoom({ position: "topright" }).addTo(map);
   L.control.scale({ position: "bottomright", imperial: false, maxWidth: 130 }).addTo(map);
@@ -427,18 +474,7 @@
 
   // 底图切换
   document.querySelectorAll("[data-base]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll("[data-base]").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      const key = btn.dataset.base;
-      Object.keys(BASEMAPS).forEach(k => { if (k !== "labels" && map.hasLayer(BASEMAPS[k])) map.removeLayer(BASEMAPS[k]); });
-      if (key !== "none") BASEMAPS[key].addTo(map);
-      currentBase = key;
-      // 注记始终压在最上层
-      if (showLabels && map.hasLayer(BASEMAPS.labels)) {
-        map.removeLayer(BASEMAPS.labels); BASEMAPS.labels.addTo(map);
-      }
-    });
+    btn.addEventListener("click", () => activateBase(btn.dataset.base));
   });
   el("btnLabel").addEventListener("click", () => {
     showLabels = !showLabels;
