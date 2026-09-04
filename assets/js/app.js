@@ -58,7 +58,15 @@
     const token = ++baseSwitchToken;
 
     if (key === "amap") {
-      let config = AMapAdapter.getConfig();
+      let siteConfig = null;
+      let config = null;
+      try {
+        siteConfig = AMapAdapter.getSiteConfig();
+        config = siteConfig || AMapAdapter.getConfig();
+      } catch (error) {
+        toast(`站点高德配置无效：${error.message}`, "err");
+        return false;
+      }
       if (!config) {
         const picked = await askAmapConfig();
         if (!picked || picked.cleared || token !== baseSwitchToken) return false;
@@ -74,9 +82,13 @@
         });
       } catch (error) {
         AMapAdapter.hide();
-        lastAmapDraft = config;
-        AMapAdapter.clearConfig();
-        toast(`高德地图连接失败：${error.message}；配置已保留，可再次点击修改`, "err");
+        if (siteConfig) {
+          toast(`高德地图连接失败：${error.message}；请检查站点 Key、安全代理和域名限制`, "err");
+        } else {
+          lastAmapDraft = config;
+          AMapAdapter.clearConfig();
+          toast(`高德地图连接失败：${error.message}；配置已保留，可再次点击修改`, "err");
+        }
         return false;
       } finally {
         hideLoading();
@@ -589,6 +601,15 @@
     btn.addEventListener("click", async () => {
       const key = btn.dataset.base;
       if (key === "amap" && currentBase === "amap") {
+        try {
+          if (AMapAdapter.getSiteConfig()) {
+            toast("高德底图由站长统一配置，访客无需填写 Key");
+            return;
+          }
+        } catch (error) {
+          toast(`站点高德配置无效：${error.message}`, "err");
+          return;
+        }
         const picked = await askAmapConfig();
         if (picked && picked.cleared) {
           await activateBase("osm");

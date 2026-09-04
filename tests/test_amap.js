@@ -15,6 +15,23 @@ require(path.join(__dirname, "..", "assets", "js", "amap.js"));
 
 const test = AMapAdapter._test;
 
+assert.strictEqual(AMapAdapter.getSiteConfig(), null);
+global.GIS_VIEWER_CONFIG = {
+  amap: {
+    key: " site-key ",
+    serviceHost: "https://maps.example.com/_AMapService/"
+  }
+};
+assert.deepStrictEqual(AMapAdapter.getSiteConfig(), {
+  key: "site-key",
+  securityJsCode: "",
+  serviceHost: "https://maps.example.com/_AMapService"
+});
+assert.deepStrictEqual(AMapAdapter.getEffectiveConfig(), AMapAdapter.getSiteConfig());
+global.GIS_VIEWER_CONFIG.amap.securityJsCode = "must-not-leak";
+assert.throws(() => AMapAdapter.getSiteConfig(), /不能填写 securityJsCode/);
+delete global.GIS_VIEWER_CONFIG;
+
 const plaintext = test.normalizeConfig({ key: " demo-key ", securityJsCode: " demo-secret " });
 assert.deepStrictEqual(plaintext, {
   key: "demo-key",
@@ -40,6 +57,7 @@ assert.throws(() => test.normalizeConfig({ key: "x", serviceHost: "https://examp
 
 AMapAdapter.saveConfig(plaintext);
 assert.deepStrictEqual(AMapAdapter.getConfig(), plaintext);
+assert.deepStrictEqual(AMapAdapter.getEffectiveConfig(), plaintext);
 AMapAdapter.clearConfig();
 assert.strictEqual(AMapAdapter.getConfig(), null);
 

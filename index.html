@@ -109,8 +109,8 @@
   <div class="card">
     <h3>连接高德地图</h3>
     <div class="hint">
-      配置只保存在当前浏览器，不会写入项目或上传到 GitHub。正式部署推荐填写服务端安全代理；
-      明文安全密钥只适合个人试用。
+      站长尚未提供统一配置时，可在此浏览器临时试用。这里填写的内容只保存在本机，
+      不会写入项目或上传到 GitHub；明文安全密钥不适合正式部署。
     </div>
     <label class="modal-field">
       <span>Web JS API Key</span>
@@ -131,7 +131,7 @@
       精密位置核验请使用 OSM 或无底图模式。
     </div>
     <div class="foot split">
-      <button class="btn ghost danger" id="amapClear">清除配置</button>
+      <button class="btn ghost danger" id="amapClear">清除本机配置</button>
       <span class="foot-spacer"></span>
       <button class="btn ghost" id="amapCancel">取消</button>
       <button class="btn primary" id="amapSave">保存并连接</button>
@@ -152,6 +152,7 @@
 <script src="assets/js/projection.js"></script>
 <script src="assets/js/loader.js"></script>
 <script src="assets/js/exporter.js"></script>
+<script src="assets/js/site-config.js"></script>
 <script src="assets/js/amap.js"></script>
 <script src="assets/js/app.js"></script>
 </body>

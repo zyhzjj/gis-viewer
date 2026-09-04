@@ -66,6 +66,24 @@
     }
   }
 
+  function getSiteConfig() {
+    const root = global.GIS_VIEWER_CONFIG;
+    const source = root && root.amap;
+    if (!source) return null;
+
+    const hasPublicValue = Boolean(text(source.key) || text(source.serviceHost));
+    const exposedSecret = text(source.securityJsCode);
+    if (!hasPublicValue && !exposedSecret) return null;
+    if (exposedSecret) {
+      throw new Error("站点公开配置中不能填写 securityJsCode，请把它保存在安全代理端");
+    }
+    return normalizeConfig({ key: source.key, serviceHost: source.serviceHost });
+  }
+
+  function getEffectiveConfig() {
+    return getSiteConfig() || getConfig();
+  }
+
   function saveConfig(input) {
     const config = normalizeConfig(input);
     const storage = getStorage();
@@ -232,6 +250,8 @@
 
   global.AMapAdapter = {
     getConfig,
+    getSiteConfig,
+    getEffectiveConfig,
     saveConfig,
     clearConfig,
     show,

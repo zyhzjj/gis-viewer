@@ -54,12 +54,33 @@ python -m http.server 8080
 
 ## 高德地图配置（可选）
 
+项目现在支持“站长统一配置”和“访客本机试用”两种模式。正式发布建议使用站长统一配置：所有访客直接使用站长的 Key，不需要各自申请；调用量也计入站长账号。
+
+### 站长统一配置（正式发布）
+
+1. 在高德开放平台申请 **Web端（JS API）Key** 及配套的 `securityJsCode`，并按控制台要求限制站点使用域名。当前 GitHub Pages 域名是 `zyhzjj.github.io`。
+2. 在服务器、云函数或边缘函数部署高德安全代理，把 `securityJsCode` 只保存在代理的 Secret/环境变量中。代理公开地址必须以 `/_AMapService` 结尾。
+3. 编辑 `assets/js/site-config.js`，只填写 Web Key 和代理地址：
+
+```js
+window.GIS_VIEWER_CONFIG = {
+  amap: {
+    key: "你的 Web JS API Key",
+    serviceHost: "https://你的代理域名/_AMapService"
+  }
+};
+```
+
+`securityJsCode` **绝对不要**填入网页、GitHub 仓库或 `site-config.js`。Web Key 会出现在浏览器请求中，这是 JS API 的正常工作方式；真正需要保密的是 `securityJsCode`。未填完整站点配置时，程序会自动退回访客本机试用模式。
+
+### 访客本机试用（备用）
+
 点击顶部「高德」，首次使用会要求填写高德开放平台的 **Web JS API Key**，以及以下两种鉴权方式之一：
 
 1. 本机试用：填写与 Key 配套的 `securityJsCode`。配置只保存在当前浏览器的 `localStorage`，不会提交到仓库，但明文方式不适合生产环境。
-2. 正式部署：填写以 `/_AMapService` 结尾的安全代理地址，把 `securityJsCode` 留在服务器端。
+2. 使用已有代理：填写以 `/_AMapService` 结尾的安全代理地址，把 `securityJsCode` 留在服务器端。
 
-高德采用 GCJ-02，本项目中的业务数据与导出结果继续保持 WGS84。高德模式通过 WGS84→GCJ-02 转换同步两个地图引擎的视图中心，适合浏览和展示；精密叠加核验应使用 OSM 或无底图模式。再次点击已经激活的「高德」可修改或清除浏览器内配置。
+高德采用 GCJ-02，本项目中的业务数据与导出结果继续保持 WGS84。高德模式通过 WGS84→GCJ-02 转换同步两个地图引擎的视图中心，适合浏览和展示；精密叠加核验应使用 OSM 或无底图模式。使用站长配置时，再次点击已经激活的「高德」会提示配置来源；使用本机配置时则可修改或清除。
 
 申请与配置说明：[高德 JS API 2.0 加载](https://lbs.amap.com/api/javascript-api-v2/guide/abc/load)、[安全密钥使用](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode)。
 
@@ -116,6 +137,7 @@ gis-viewer/
 │   └── js/
 │       ├── projection.js  # 坐标系识别与重投影
 │       ├── loader.js      # 多格式空间数据解析
+│       ├── site-config.js # 站点公开配置（不含安全密钥）
 │       ├── amap.js        # 高德 JS API 加载、鉴权配置与视图同步
 │       ├── app.js         # 地图、图层管理、属性查看
 │       └── vendor/        # 第三方库本地副本
