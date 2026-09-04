@@ -7,10 +7,10 @@
 window.GIS_VIEWER_CONFIG = {
   amap: {
     // 申请高德“Web端（JS API）”Key 后填写，例如："abc123..."
-    key: "",
+    key: "d747810a7ed8f06439eec224abb01e59",
 
     // 安全代理的公开入口，必须以 /_AMapService 结尾。
     // 例如："https://maps.example.com/_AMapService"
-    serviceHost: ""
+    serviceHost: "https://gisviewer.1059412191zxy.workers.dev/_AMapService"
   }
 };
