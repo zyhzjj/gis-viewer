@@ -41,20 +41,33 @@
     "EPSG:32653": "+proj=utm +zone=53 +datum=WGS84 +units=m +no_defs"
   };
 
-  // CGCS2000 三度带高斯克吕格：带号 25~45（中央经线 75°E~135°E）
-  // EPSG 编号规则：EPSG:4534 对应 25 带（CM 75°E），依次递增
-  for (let zone = 25; zone <= 45; zone++) {
-    const cm = zone * 3;                       // 三度带中央经线
-    BUILTIN_DEFS[`EPSG:${4534 + (zone - 25)}`] =
+  // CGCS2000 六度带高斯克吕格：带号坐标（东坐标含带号）
+  // EPSG:4491~4501 对应 13~23 带。
+  for (let zone = 13; zone <= 23; zone++) {
+    const cm = zone * 6 - 3;
+    BUILTIN_DEFS[`EPSG:${4491 + (zone - 13)}`] =
+      `+proj=tmerc +lat_0=0 +lon_0=${cm} +k=1 +x_0=${zone * 1000000 + 500000} +y_0=0 ` +
+      `+ellps=GRS80 +units=m +no_defs`;
+  }
+  // CGCS2000 六度带中央经线坐标（东坐标不含带号），EPSG:4502~4512。
+  for (let zone = 13; zone <= 23; zone++) {
+    const cm = zone * 6 - 3;
+    BUILTIN_DEFS[`EPSG:${4502 + (zone - 13)}`] =
       `+proj=tmerc +lat_0=0 +lon_0=${cm} +k=1 +x_0=500000 +y_0=0 ` +
       `+ellps=GRS80 +units=m +no_defs`;
   }
-  // CGCS2000 六度带高斯克吕格：带号 13~23（中央经线 75°E~135°E）
-  // EPSG:4491 对应 13 带（CM 75°E）
-  for (let zone = 13; zone <= 23; zone++) {
-    const cm = zone * 6 - 3;                   // 六度带中央经线
-    BUILTIN_DEFS[`EPSG:${4491 + (zone - 13)}`] =
+  // CGCS2000 三度带高斯克吕格：带号坐标，EPSG:4513~4533。
+  for (let zone = 25; zone <= 45; zone++) {
+    const cm = zone * 3;
+    BUILTIN_DEFS[`EPSG:${4513 + (zone - 25)}`] =
       `+proj=tmerc +lat_0=0 +lon_0=${cm} +k=1 +x_0=${zone * 1000000 + 500000} +y_0=0 ` +
+      `+ellps=GRS80 +units=m +no_defs`;
+  }
+  // CGCS2000 三度带中央经线坐标（东坐标不含带号），EPSG:4534~4554。
+  for (let zone = 25; zone <= 45; zone++) {
+    const cm = zone * 3;
+    BUILTIN_DEFS[`EPSG:${4534 + (zone - 25)}`] =
+      `+proj=tmerc +lat_0=0 +lon_0=${cm} +k=1 +x_0=500000 +y_0=0 ` +
       `+ellps=GRS80 +units=m +no_defs`;
   }
 
@@ -66,6 +79,7 @@
     { code: "EPSG:32649", name: "WGS 84 / UTM 49N（西北、四川西部一带）" },
     { code: "EPSG:32650", name: "WGS 84 / UTM 50N（华东、福建、广东东部）" },
     { code: "EPSG:32651", name: "WGS 84 / UTM 51N（东北、山东、江苏一带）" },
+    { code: "EPSG:4509", name: "CGCS 2000 六度带 CM 117°E（不含带号）" },
     { code: "EPSG:4547", name: "CGCS 2000 三度带 CM 114°E（湖北、湖南一带）" },
     { code: "EPSG:4548", name: "CGCS 2000 三度带 CM 117°E（安徽、江西一带）" },
     { code: "EPSG:4549", name: "CGCS 2000 三度带 CM 120°E（福建、江苏南部）" },
@@ -82,19 +96,18 @@
   }
 
   /* ---------------------------------------------------------------------------
-   * 从 WKT（.prj 文件内容）中提取 EPSG 编号
-   * 形如 AUTHORITY["EPSG","4326"]，投影坐标系与地理坐标系可能各出现一次，
-   * 优先取最外层（第一个），即 PROJCS 层的编号。
+   * 从 WKT（.prj 文件内容）中提取 EPSG 编号。
+   * WKT1/WKT2 会先写椭球、基准面、地理坐标系等内层对象，最外层 CRS 的
+   * AUTHORITY/ID 通常位于最后，因此不能简单取遇到的第一个编号。
    * ------------------------------------------------------------------------ */
   function parseEpsgFromWkt(wkt) {
     if (!wkt) return null;
-    const re = /AUTHORITY\s*\[\s*["']EPSG["']\s*,\s*["'](\d+)["']\s*\]/gi;
+    const re = /(?:AUTHORITY|ID)\s*\[\s*["']EPSG["']\s*,\s*["']?(\d+)["']?\s*\]/gi;
     const codes = [];
     let m;
     while ((m = re.exec(wkt)) !== null) codes.push(m[1]);
     if (!codes.length) return null;
-    // 去重后返回第一个（外层坐标系）
-    return "EPSG:" + codes[0];
+    return "EPSG:" + codes[codes.length - 1];
   }
 
   /* ---------------------------------------------------------------------------
@@ -109,6 +122,8 @@
     const isTmerc = /PROJECTION\s*\[\s*["'](TRANSVERSE_MERCATOR|GAUSS_KRUGER|TMERC)/i.test(wkt);
     const lon0Match = wkt.match(/PARAMETER\s*\[\s*["'](CENTRAL_MERIDIAN|LONGITUDE_OF_CENTER)["']\s*,\s*([-\d.]+)\s*\]/i);
     const lon0 = lon0Match ? parseFloat(lon0Match[2]) : null;
+    const x0Match = wkt.match(/PARAMETER\s*\[\s*["']FALSE_EASTING["']\s*,\s*([-\d.]+)\s*\]/i);
+    const x0 = x0Match ? parseFloat(x0Match[1]) : null;
 
     let datum = "unknown";
     if (/D_CHINA_2000|CHINA_2000|CGCS2000/.test(w)) datum = "CGCS2000";
@@ -117,16 +132,32 @@
     else if (/D_BEIJING_1954|BEIJING_1954/.test(w)) datum = "Beijing54";
 
     if (isTmerc && lon0 !== null) {
-      // 三度带：中央经线是 3 的整数倍；六度带：中央经线是 6n-3
-      const z3 = lon0 / 3;
-      if (Math.abs(z3 - Math.round(z3)) < 1e-6 && datum === "CGCS2000") {
-        const zone = Math.round(z3);
-        if (zone >= 25 && zone <= 45) {
-          return {
-            code: `EPSG:${4534 + (zone - 25)}`,
-            name: `CGCS 2000 三度带 ${zone} 带（CM ${lon0}°E）`,
-            confident: true
-          };
+      if (datum === "CGCS2000") {
+        const isThreeDegree = /3[-_ ]?DEGREE|3\s*度|三度/.test(w);
+        const zone3 = Math.round(lon0 / 3);
+        const zone6 = Math.round((lon0 + 3) / 6);
+        const hasZonePrefix = x0 !== null && Math.abs(x0) >= 10000000;
+
+        if (hasZonePrefix) {
+          const prefixZone = Math.floor(Math.abs(x0) / 1000000);
+          if (prefixZone >= 25 && prefixZone <= 45 && Math.abs(lon0 - prefixZone * 3) < 1e-6) {
+            return { code: `EPSG:${4513 + (prefixZone - 25)}`,
+              name: `CGCS 2000 三度带 ${prefixZone} 带（含带号）`, confident: true };
+          }
+          if (prefixZone >= 13 && prefixZone <= 23 && Math.abs(lon0 - (prefixZone * 6 - 3)) < 1e-6) {
+            return { code: `EPSG:${4491 + (prefixZone - 13)}`,
+              name: `CGCS 2000 六度带 ${prefixZone} 带（含带号）`, confident: true };
+          }
+        } else if (Math.abs((x0 === null ? 500000 : x0) - 500000) < 1) {
+          if (isThreeDegree || Math.abs(lon0 - (zone6 * 6 - 3)) >= 1e-6) {
+            if (zone3 >= 25 && zone3 <= 45 && Math.abs(lon0 - zone3 * 3) < 1e-6) {
+              return { code: `EPSG:${4534 + (zone3 - 25)}`,
+                name: `CGCS 2000 三度带 CM ${lon0}°E（不含带号）`, confident: true };
+            }
+          } else if (zone6 >= 13 && zone6 <= 23) {
+            return { code: `EPSG:${4502 + (zone6 - 13)}`,
+              name: `CGCS 2000 六度带 CM ${lon0}°E（不含带号）`, confident: true };
+          }
         }
       }
       // UTM 带：中央经线 = 6n - 183
@@ -179,6 +210,32 @@
     return [p[0], p[1]];
   }
 
+  /**
+   * 把源坐标系中的轴对齐包围框转换为 WGS84 包围框。
+   * 对四条边加密采样，避免只转换两个对角点时低估非线性投影的范围。
+   */
+  function projectBoundsToWgs84(bbox, fromCrs, segments) {
+    if (!Array.isArray(bbox) || bbox.length !== 4) throw new Error("无效的栅格包围框");
+    const n = Math.max(1, Number.isFinite(segments) ? Math.floor(segments) : 16);
+    const minX = bbox[0], minY = bbox[1], maxX = bbox[2], maxY = bbox[3];
+    const points = [];
+
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const x = minX + (maxX - minX) * t;
+      const y = minY + (maxY - minY) * t;
+      points.push(toWgs84(x, minY, fromCrs));
+      points.push(toWgs84(x, maxY, fromCrs));
+      points.push(toWgs84(minX, y, fromCrs));
+      points.push(toWgs84(maxX, y, fromCrs));
+    }
+
+    const xs = points.map(p => p[0]).filter(Number.isFinite);
+    const ys = points.map(p => p[1]).filter(Number.isFinite);
+    if (!xs.length || !ys.length) throw new Error("栅格范围坐标转换失败");
+    return [[Math.min(...ys), Math.min(...xs)], [Math.max(...ys), Math.max(...xs)]];
+  }
+
   /* ---------------------------------------------------------------------------
    * 对整个 GeoJSON 做重投影（原地修改坐标数组，避免深拷贝大对象）
    * 支持 Point / LineString / Polygon / MultiPolygon 等任意嵌套深度
@@ -226,6 +283,7 @@
     inferFromWkt,
     ensureDef,
     toWgs84,
+    projectBoundsToWgs84,
     reprojectGeoJSON,
     hasDef: code => { registerBuiltins(); return !!proj4.defs(code); }
   };

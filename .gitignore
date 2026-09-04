@@ -4,6 +4,8 @@ output/
 
 # ===== 依赖 =====
 node_modules/
+__pycache__/
+*.py[cod]
 
 # ===== 系统 / 编辑器 =====
 .DS_Store

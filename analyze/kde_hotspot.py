@@ -21,7 +21,7 @@
 
 运行：
    python analyze/kde_hotspot.py
-   （DATA_PATH 指向真实数据时直接分析；缺省合并 INPUT_FALLBACK 提示）
+   （DATA_PATH 指向真实数据时直接分析；缺失时会给出明确提示）
 
 依赖：
    pip install geopandas shapely pyproj fiona numpy
@@ -44,6 +44,11 @@ import pandas as pd
 from shapely.geometry import Point, box
 
 try:
+    from shapely import contains_xy
+except ImportError:  # Shapely < 2.0 兼容
+    contains_xy = None
+
+try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
@@ -59,6 +64,8 @@ DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "points.geojso
 
 # 坐标系声明：WGS84 | GCJ02 | BD09。GCJ02/BD09 为国内「火星坐标」，需纠偏否则与底图错位
 COORD_SYSTEM = "WGS84"
+# 输入文件缺少 CRS 时可在这里显式指定，例如 "EPSG:4549"；None 表示按 WGS84 经纬度
+INPUT_CRS = None
 FIELD_ID = "id"          # 编号字段（可选）
 FIELD_NAME = "name"      # 名称字段（可选）
 FIELD_WEIGHT = "weight"  # 权重字段（可选，如车辆数/客流量；缺失按 1 计）
@@ -73,10 +80,10 @@ MASK_SIMPLIFY_TOL = 0.0003                # 边界抽稀容差（度），≈33m
 
 # ---------------- 1.3 坐标系 ----------------
 # 核密度必须在【米制投影】下进行。按你数据所在带选择：
-#   东经 114°E 一带 → EPSG:32649 (UTM 49N)
-#   东经 117°E 一带 → EPSG:32650 (UTM 50N，华东/福建)
-#   东经 120°E 一带 → EPSG:32651 (UTM 51N)
-#   国家 2000 三度带 → EPSG:4547(CM120) / 4549(CM120? 见投影表)
+#   中央经线 111°E → EPSG:32649 (UTM 49N)
+#   中央经线 117°E → EPSG:32650 (UTM 50N，华东/福建)
+#   中央经线 123°E → EPSG:32651 (UTM 51N)
+#   国家 2000 三度带示例：EPSG:4547(CM114) / EPSG:4549(CM120)
 METRIC_CRS = "EPSG:32650"     # ★ 米制投影坐标系
 WGS84_CRS = "EPSG:4326"       # 输出坐标系
 
@@ -89,6 +96,7 @@ BANDWIDTH_M = 800.0
 CELL_SIZE_M = 200.0
 STUDY_BUFFER_M = 1500.0          # 研究区外扩缓冲，避免边界处热点被截断
 KERNEL_CUTOFF_SIGMA = 3.0        # 超出 3σ 的高斯值≈0，不参与计算以加速
+MAX_GRID_CELLS = 2_000_000       # 防止投影/范围配置错误导致一次创建过大网格
 
 # ---------------- 1.5 结果裁剪与分级 ----------------
 TRIM_LOW_DENSITY_RATIO = 0.20    # 分位裁剪：丢弃密度最低的该比例网格
@@ -112,8 +120,56 @@ def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
 
+def _outside_china(lon, lat):
+    """GCJ-02 只在中国大陆加偏；范围外坐标保持不变。"""
+    return lon < 72.004 or lon > 137.8347 or lat < 0.8293 or lat > 55.8271
+
+
+def gcj02_to_wgs84(lon, lat):
+    """GCJ-02（火星坐标）近似反算为 WGS84。"""
+    if _outside_china(lon, lat):
+        return lon, lat
+    a = 6378245.0
+    ee = 0.00669342162296594323
+    pi = math.pi
+
+    def transform_lat(x, y):
+        value = (-100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y +
+                 0.1 * x * y + 0.2 * math.sqrt(abs(x)))
+        value += (20.0 * math.sin(6.0 * x * pi) + 20.0 * math.sin(2.0 * x * pi)) * 2.0 / 3.0
+        value += (20.0 * math.sin(y * pi) + 40.0 * math.sin(y / 3.0 * pi)) * 2.0 / 3.0
+        value += (160.0 * math.sin(y / 12.0 * pi) + 320.0 * math.sin(y * pi / 30.0)) * 2.0 / 3.0
+        return value
+
+    def transform_lon(x, y):
+        value = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * math.sqrt(abs(x))
+        value += (20.0 * math.sin(6.0 * x * pi) + 20.0 * math.sin(2.0 * x * pi)) * 2.0 / 3.0
+        value += (20.0 * math.sin(x * pi) + 40.0 * math.sin(x / 3.0 * pi)) * 2.0 / 3.0
+        value += (150.0 * math.sin(x / 12.0 * pi) + 300.0 * math.sin(x / 30.0 * pi)) * 2.0 / 3.0
+        return value
+
+    d_lat = transform_lat(lon - 105.0, lat - 35.0)
+    d_lon = transform_lon(lon - 105.0, lat - 35.0)
+    rad_lat = lat / 180.0 * pi
+    magic = 1 - ee * math.sin(rad_lat) ** 2
+    sqrt_magic = math.sqrt(magic)
+    d_lat = (d_lat * 180.0) / ((a * (1 - ee)) / (magic * sqrt_magic) * pi)
+    d_lon = (d_lon * 180.0) / (a / sqrt_magic * math.cos(rad_lat) * pi)
+    return lon - d_lon, lat - d_lat
+
+
+def bd09_to_wgs84(lon, lat):
+    """BD-09（百度坐标）反算为 WGS84。"""
+    x_pi = math.pi * 3000.0 / 180.0
+    x = lon - 0.0065
+    y = lat - 0.006
+    z = math.sqrt(x * x + y * y) - 0.00002 * math.sin(y * x_pi)
+    theta = math.atan2(y, x) - 0.000003 * math.cos(x * x_pi)
+    return gcj02_to_wgs84(z * math.cos(theta), z * math.sin(theta))
+
+
 def read_point_data(path):
-    """读取点状数据，返回 (GeoDataFrame[WGS84], 原始坐标系信息)"""
+    """读取点状数据并返回 GeoDataFrame。"""
     ext = os.path.splitext(path)[1].lower()
     if ext in (".geojson", ".json"):
         gdf = gpd.read_file(path)
@@ -127,13 +183,25 @@ def read_point_data(path):
         lat = next((c for c in df.columns if str(c).lower() in ("lat", "latitude", "y")), None)
         if not lon or not lat:
             raise ValueError(f"CSV 缺少经纬度列（需要 lon/lat 或 x/y）：{list(df.columns)}")
-        gdf = gpd.GeoDataFrame(df, geometry=[Point(r[lon], r[lat]) for _, r in df.iterrows()], crs=WGS84_CRS)
+        coords = df[[lon, lat]].apply(pd.to_numeric, errors="coerce")
+        if coords.isna().any(axis=None):
+            raise ValueError("CSV 坐标列包含空值或非数字，请先清洗")
+        if INPUT_CRS is None and (coords[lon].abs().max() > 180 or coords[lat].abs().max() > 90):
+            raise ValueError("CSV 看起来是投影坐标，请设置 INPUT_CRS（例如 EPSG:4549）")
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=[Point(x, y) for x, y in coords.itertuples(index=False, name=None)],
+            crs=INPUT_CRS or WGS84_CRS,
+        )
     else:
         raise ValueError(f"不支持的输入格式：{ext}")
-    # 仅保留点几何
+    # 仅保留点几何；MultiPoint 拆成独立 Point，后续才能安全读取 .x/.y
     gdf = gdf[gdf.geometry.type.isin(["Point", "MultiPoint"])].copy()
     if len(gdf) == 0:
         raise ValueError("输入数据中没有任何 Point/MultiPoint 要素")
+    if (gdf.geometry.type == "MultiPoint").any():
+        gdf = gdf.explode(index_parts=False, ignore_index=True)
+        gdf = gdf[gdf.geometry.type == "Point"].copy()
     log(f"读取点数据：{len(gdf)} 个点，原始坐标系 {gdf.crs}")
     return gdf
 
@@ -141,8 +209,10 @@ def read_point_data(path):
 def guess_metric_crs(gdf_wgs):
     """根据数据重心粗略推断 UTM 带（仅当配置了未知 METRIC_CRS 时备用）"""
     lon = gdf_wgs.geometry.x.mean()
-    zone = int(math.floor((lon + 180) / 6) + 1)
-    return f"EPSG:326{zone}"
+    lat = gdf_wgs.geometry.y.mean()
+    zone = min(60, max(1, int(math.floor((lon + 180) / 6) + 1)))
+    prefix = 326 if lat >= 0 else 327
+    return f"EPSG:{prefix}{zone:02d}"
 
 
 # ============================================================================
@@ -170,6 +240,8 @@ def gaussian_kde_on_grid(points_xy, weights, grid_xy, bandwidth, chunk_size=256)
     w = weights * coef
     m = grid_xy.shape[0]
     out = np.zeros(m, dtype=np.float64)
+    # 将单批距离矩阵控制在约 400 万元素内，避免点数很大时瞬间占用数百 MB。
+    chunk_size = max(1, min(int(chunk_size), max(1, 4_000_000 // max(1, len(points_xy)))))
     cutoff2 = (KERNEL_CUTOFF_SIGMA * bandwidth) ** 2
     for start in range(0, m, chunk_size):
         end = min(start + chunk_size, m)
@@ -192,6 +264,21 @@ def gaussian_kde_on_grid(points_xy, weights, grid_xy, bandwidth, chunk_size=256)
 # 四、主流程
 # ============================================================================
 def main():
+    if CELL_SIZE_M <= 0:
+        raise ValueError("CELL_SIZE_M 必须大于 0")
+    if BANDWIDTH_M is not None and BANDWIDTH_M <= 0:
+        raise ValueError("BANDWIDTH_M 必须大于 0 或设为 None")
+    if KERNEL_CUTOFF_SIGMA <= 0:
+        raise ValueError("KERNEL_CUTOFF_SIGMA 必须大于 0")
+    if STUDY_BUFFER_M < 0:
+        raise ValueError("STUDY_BUFFER_M 不能小于 0")
+    if not 0 <= TRIM_LOW_DENSITY_RATIO < 1 or not 0 <= MIN_DENSITY_RATIO < 1:
+        raise ValueError("密度裁剪比例必须位于 [0, 1) 区间")
+    if len(LEVEL_BREAKS_RATIO) != N_LEVELS + 1 or any(
+            b < 0 or b > 1 for b in LEVEL_BREAKS_RATIO) or any(
+            a >= b for a, b in zip(LEVEL_BREAKS_RATIO, LEVEL_BREAKS_RATIO[1:])):
+        raise ValueError("LEVEL_BREAKS_RATIO 必须包含 N_LEVELS+1 个严格递增的 0~1 断点")
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     random.seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
@@ -204,14 +291,19 @@ def main():
     gdf = read_point_data(DATA_PATH)
 
     # ---- 4.2 坐标系 → WGS84 ----
+    coord_system = COORD_SYSTEM.strip().upper()
+    if coord_system not in {"WGS84", "GCJ02", "BD09"}:
+        raise ValueError("COORD_SYSTEM 只支持 WGS84、GCJ02 或 BD09")
+    if coord_system != "WGS84" and gdf.crs is not None and not gdf.crs.is_geographic:
+        raise ValueError(f"{coord_system} 应为经纬度坐标，但输入 CRS 是投影坐标系 {gdf.crs}")
     if gdf.crs is None:
-        gdf = gdf.set_crs(WGS84_CRS, allow_override=True)
+        gdf = gdf.set_crs(INPUT_CRS or WGS84_CRS, allow_override=True)
     if gdf.crs.to_string() != WGS84_CRS:
-        if COORD_SYSTEM.upper() == "GCJ02":
-            gdf = gdf.to_crs(WGS84_CRS)  # 简化：真实纠偏需专用算法，此处仅作占位
-            log("⚠ COORD_SYSTEM=GCJ02：本脚本未内置纠偏，请先在外部分转换后再输入")
-        else:
-            gdf = gdf.to_crs(WGS84_CRS)
+        gdf = gdf.to_crs(WGS84_CRS)
+    if coord_system in {"GCJ02", "BD09"}:
+        converter = gcj02_to_wgs84 if coord_system == "GCJ02" else bd09_to_wgs84
+        gdf.geometry = [Point(*converter(p.x, p.y)) for p in gdf.geometry]
+        log(f"已完成 {coord_system} → WGS84 坐标纠偏")
 
     # ---- 4.3 投影到米制 ----
     metric_crs = METRIC_CRS or guess_metric_crs(gdf)
@@ -219,22 +311,41 @@ def main():
     xy = np.column_stack([gdf_metric.geometry.x.values, gdf_metric.geometry.y.values])
     n_points = len(xy)
     wcol = FIELD_WEIGHT if FIELD_WEIGHT in gdf.columns else None
-    weights = gdf[wcol].values.astype(float) if wcol else np.ones(n_points, dtype=float)
-    weights = np.where(np.isfinite(weights), weights, 1.0)
+    if wcol:
+        numeric_weights = pd.to_numeric(gdf[wcol], errors="coerce").to_numpy(dtype=float, copy=True)
+        invalid = ~np.isfinite(numeric_weights)
+        if invalid.any():
+            log(f"⚠ 权重字段有 {int(invalid.sum())} 个无效值，已按 1 处理")
+            numeric_weights[invalid] = 1.0
+        weights = numeric_weights
+    else:
+        weights = np.ones(n_points, dtype=float)
+    if (weights < 0).any():
+        raise ValueError("权重字段不能包含负数")
+    if weights.sum() <= 0:
+        raise ValueError("权重总和必须大于 0")
     log(f"投影到 {metric_crs}：{n_points} 个点，权重字段={wcol or '无(按1计)'}")
 
     # ---- 4.4 边界约束（可选） ----
     mask_poly = None
-    if MASK_SHP_PATH and os.path.exists(MASK_SHP_PATH) and MASK_CITY_NAME:
+    if MASK_SHP_PATH:
+        if not os.path.exists(MASK_SHP_PATH):
+            raise FileNotFoundError(f"研究区边界不存在：{MASK_SHP_PATH}")
+        if not MASK_CITY_NAME:
+            raise ValueError("设置 MASK_SHP_PATH 后必须同时设置 MASK_CITY_NAME")
         mask = gpd.read_file(MASK_SHP_PATH)
         if mask.crs is None:
             mask = mask.set_crs(WGS84_CRS, allow_override=True)
         mask = mask.to_crs(metric_crs)
         if MASK_CITY_FIELD in mask.columns:
-            sel = mask[mask[MASK_CITY_FIELD].astype(str).str.contains(MASK_CITY_NAME, na=False)]
-            mask_poly = (sel.union_all() if len(sel) else mask.union_all())
+            sel = mask[mask[MASK_CITY_FIELD].astype(str).str.contains(MASK_CITY_NAME, na=False, regex=False)]
+            if not len(sel):
+                raise ValueError(f"边界字段 {MASK_CITY_FIELD!r} 中未找到 {MASK_CITY_NAME!r}")
+            mask_poly = sel.union_all()
         else:
-            mask_poly = mask.union_all()
+            raise ValueError(f"边界文件缺少字段 {MASK_CITY_FIELD!r}；可用字段：{list(mask.columns)}")
+        if mask_poly.is_empty:
+            raise ValueError("研究区边界为空")
         log(f"已加载研究区边界：{MASK_CITY_NAME}（{mask_poly.geom_type}）")
 
     # ---- 4.5 带宽 ----
@@ -244,6 +355,8 @@ def main():
         log(f"Silverman 自动估算带宽：{bandwidth:.1f} m")
     else:
         bandwidth = float(BANDWIDTH_M)
+    if not np.isfinite(bandwidth) or bandwidth <= 0:
+        raise ValueError("无法得到有效带宽，请检查点位分布或手动设置 BANDWIDTH_M")
     log(f"带宽={bandwidth:.1f} m，网格边长={CELL_SIZE_M} m")
 
     # ---- 4.6 构建规则渔网 ----
@@ -253,10 +366,15 @@ def main():
         minx, miny, maxx, maxy = gdf_metric.total_bounds
     minx -= STUDY_BUFFER_M; miny -= STUDY_BUFFER_M
     maxx += STUDY_BUFFER_M; maxy += STUDY_BUFFER_M
-    nx = max(1, int(round((maxx - minx) / CELL_SIZE_M)))
-    ny = max(1, int(round((maxy - miny) / CELL_SIZE_M)))
-    xs = np.linspace(minx + CELL_SIZE_M / 2, maxx - CELL_SIZE_M / 2, nx)
-    ys = np.linspace(miny + CELL_SIZE_M / 2, maxy - CELL_SIZE_M / 2, ny)
+    nx = max(1, int(math.ceil((maxx - minx) / CELL_SIZE_M)))
+    ny = max(1, int(math.ceil((maxy - miny) / CELL_SIZE_M)))
+    if nx * ny > MAX_GRID_CELLS:
+        raise ValueError(
+            f"网格数量 {nx * ny:,} 超过安全上限 {MAX_GRID_CELLS:,}；"
+            "请增大 CELL_SIZE_M、缩小研究区或检查输入 CRS"
+        )
+    xs = minx + (np.arange(nx) + 0.5) * CELL_SIZE_M
+    ys = miny + (np.arange(ny) + 0.5) * CELL_SIZE_M
     gx, gy = np.meshgrid(xs, ys)
     centers = np.column_stack([gx.ravel(), gy.ravel()])
     log(f"渔网规模：{nx} × {ny} = {len(centers)} 个网格中心")
@@ -268,19 +386,25 @@ def main():
     # ---- 4.8 裁剪（边界外 / 低值） ----
     keep = np.ones(len(centers), dtype=bool)
     if mask_poly is not None:
-        from shapely.strtree import STRtree
-        from shapely.geometry import Point as ShPoint
-        tree = STRtree([ShPoint(c) for c in centers])
-        inside = np.array([mask_poly.contains(ShPoint(c)) for c in centers])
+        if contains_xy is not None:
+            inside = np.asarray(contains_xy(mask_poly, centers[:, 0], centers[:, 1]), dtype=bool)
+        else:
+            inside = np.array([mask_poly.contains(Point(c)) for c in centers])
         dropped = int((~inside).sum())
         keep &= inside
         log(f"边界裁剪：丢弃 {dropped} 个界外网格")
+    if not keep.any():
+        raise ValueError("研究区内没有可计算的网格，请检查边界和投影设置")
+    eligible_dens = dens[keep]
     if MIN_DENSITY_RATIO > 0:
-        th = dens.max() * MIN_DENSITY_RATIO
+        th = eligible_dens.max() * MIN_DENSITY_RATIO
         keep &= dens >= th
     if TRIM_LOW_DENSITY_RATIO > 0:
-        th = np.quantile(dens, TRIM_LOW_DENSITY_RATIO)
+        th = np.quantile(eligible_dens, TRIM_LOW_DENSITY_RATIO)
         keep &= dens >= th
+
+    if not keep.any():
+        raise ValueError("密度裁剪后没有剩余网格，请降低裁剪阈值")
 
     centers = centers[keep]
     dens = dens[keep]
@@ -307,11 +431,10 @@ def main():
     grid.to_file(hs_path, driver="GeoJSON", encoding="utf-8")
     log(f"✔ 热力 GeoJSON：{hs_path}（{len(grid)} 个网格）")
 
-    if wcol:
-        pts_path = os.path.join(OUTPUT_DIR, OUT_POINTS)
-        out_cols = [c for c in [FIELD_ID, FIELD_NAME, FIELD_WEIGHT, FIELD_TYPE] if c in gdf.columns]
-        gdf[out_cols + ["geometry"]].to_file(pts_path, driver="GeoJSON", encoding="utf-8")
-        log(f"✔ 点位 GeoJSON：{pts_path}（{len(gdf)} 个点）")
+    pts_path = os.path.join(OUTPUT_DIR, OUT_POINTS)
+    out_cols = [c for c in [FIELD_ID, FIELD_NAME, FIELD_WEIGHT, FIELD_TYPE] if c in gdf.columns]
+    gdf[out_cols + ["geometry"]].to_file(pts_path, driver="GeoJSON", encoding="utf-8")
+    log(f"✔ 点位 GeoJSON：{pts_path}（{len(gdf)} 个点）")
 
     # 边界输出（含投影转换后的 WGS84 GeoJSON）
     if mask_poly is not None:
@@ -331,7 +454,7 @@ def main():
             "cell_size_m": CELL_SIZE_M, "weight_field": wcol,
             "n_points": n_points, "n_cells": len(grid),
         },
-        "center": [round(center[0], 5), round(center[1], 5)],
+        "center": [round(float(center[0]), 5), round(float(center[1]), 5)],
         "zoom": zoom,
         "levels": [
             {"level": i, "min_ratio": LEVEL_BREAKS_RATIO[i - 1], "max_ratio": LEVEL_BREAKS_RATIO[i]}

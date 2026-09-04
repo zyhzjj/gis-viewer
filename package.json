@@ -1,0 +1,9 @@
+{
+  "name": "gis-viewer",
+  "version": "1.0.1",
+  "private": true,
+  "description": "纯浏览器端空间数据查看器",
+  "scripts": {
+    "test": "node tests/test_projection.js && node tests/test_loader.js"
+  }
+}

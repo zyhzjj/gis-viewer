@@ -100,6 +100,9 @@
   const nextColor = () => PALETTE[colorCursor++ % PALETTE.length];
 
   const el = id => document.getElementById(id);
+  const escapeHtml = value => String(value == null ? "" : value).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
 
   /* =========================================================================
    *  4. 矢量图层构建
@@ -133,7 +136,6 @@
         }
       }
     });
-    layer.addTo(map);
     return layer;
   }
 
@@ -146,8 +148,7 @@
     let rows = keys.slice(0, 60).map(k => {
       let v = p[k];
       if (v === null || v === undefined) v = "";
-      v = String(v).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
-      return `<tr><th>${k}</th><td>${v}</td></tr>`;
+      return `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`;
     }).join("");
     if (!keys.length) rows = `<tr><td class="empty">该要素没有属性字段</td></tr>`;
     if (keys.length > 60) rows += `<tr><td class="empty">… 另有 ${keys.length - 60} 个字段未显示</td></tr>`;
@@ -180,6 +181,10 @@
       item.className = "layer-item" + (ds.visible ? "" : " off");
       const isRaster = ds.kind === "raster";
       const geomLabel = (ds.geomTypes || []).join("/") || "-";
+      const safeName = escapeHtml(ds.name);
+      const safeGeom = escapeHtml(geomLabel);
+      const safeCrs = escapeHtml(ds.crsName || "");
+      const safeWarnings = (ds.warnings || []).map(escapeHtml).join("<br/>");
 
       item.innerHTML = `
         <div class="li-head">
@@ -187,14 +192,14 @@
             <input type="checkbox" ${ds.visible ? "checked" : ""} data-act="toggle" />
           </label>
           <div class="li-main">
-            <div class="li-name" title="${ds.name}">${ds.name}</div>
+            <div class="li-name" title="${safeName}">${safeName}</div>
             <div class="li-meta">
               <span class="tag ${isRaster ? "t-raster" : "t-vector"}">${isRaster ? "栅格" : "矢量"}</span>
-              <span>${geomLabel}</span>
+              <span>${safeGeom}</span>
               <span>·</span>
               <span>${isRaster ? ds.raster.rw + "×" + ds.raster.rh : (ds.featureCount + " 要素")}</span>
             </div>
-            ${ds.crsName ? `<div class="li-crs" title="坐标系：${ds.crsName}">${ds.crsName}</div>` : ""}
+            ${ds.crsName ? `<div class="li-crs" title="坐标系：${safeCrs}">${safeCrs}</div>` : ""}
           </div>
           <div class="li-tools">
             <button data-act="zoom" title="缩放到该图层">⤢</button>
@@ -220,7 +225,7 @@
             <input type="color" value="${ds.color}" data-act="color" />
           </div>` : ""}
           ${ds.warnings && ds.warnings.length ? `
-          <div class="li-warn">${ds.warnings.join("<br/>")}</div>` : ""}
+          <div class="li-warn">${safeWarnings}</div>` : ""}
         </div>`;
 
       // 事件绑定
@@ -262,6 +267,7 @@
     const i = layers.indexOf(ds);
     if (i >= 0) layers.splice(i, 1);
     renderLayerList();
+    updateStats();
     toast(`已移除图层：${ds.name}`);
   }
   function zoomToLayer(ds) {
@@ -296,14 +302,16 @@
     for (const ds of datasets) {
       if (ds.kind === "error") { toast(`${ds.name}：${ds.error}`, "err"); continue; }
 
-      // 坐标系未确定 → 弹窗让用户指定
-      if (ds.kind === "vector") {
-        if (!ds.crs || ds.crsSource === "unknown" ||
-            ds.crsSource === "prj-undefined" || ds.crsSource === "inferred-undefined") {
+      // 坐标系未确定或缺少定义 → 弹窗让用户指定
+      const needsManualCRS = !ds.crs || ds.crsSource === "unknown" ||
+        String(ds.crsSource || "").endsWith("-undefined");
+      if (needsManualCRS) {
           const picked = await askCRS(ds);
           if (picked === null) { toast(`已跳过 ${ds.name}（未指定坐标系）`); continue; }
           ds.crs = picked.code; ds.crsName = picked.name; ds.crsSource = "manual";
-        }
+      }
+
+      if (ds.kind === "vector") {
         // 重投影到 WGS84
         try {
           if (ds.crs && ds.crs !== "EPSG:4326") {
@@ -311,6 +319,13 @@
           }
         } catch (e) {
           toast(`${ds.name} 坐标转换失败：${e.message}`, "err");
+          continue;
+        }
+      } else if (ds.kind === "raster") {
+        try {
+          if (!ds.raster.bounds || needsManualCRS) DataLoader.applyRasterCRS(ds, ds.crs);
+        } catch (e) {
+          toast(`${ds.name} 栅格范围转换失败：${e.message}`, "err");
           continue;
         }
       }
@@ -354,13 +369,13 @@
       const modal = el("crsModal");
       const sel = el("crsSelect");
       sel.innerHTML = CRSUtil.COMMON_CRS
-        .map((c, i) => `<option value="${c.code}" ${i === 0 ? "selected" : ""}>${c.name}</option>`)
+        .map((c, i) => `<option value="${escapeHtml(c.code)}" ${i === 0 ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
         .join("") + `<option value="__none__">不做转换（按文件原坐标直接显示）</option>
                      <option value="__custom__">手动输入 EPSG 编号 …</option>`;
 
       el("crsFile").textContent = ds.name;
       el("crsHint").innerHTML = (ds.warnings && ds.warnings.length)
-        ? ds.warnings.join("<br/>")
+        ? ds.warnings.map(escapeHtml).join("<br/>")
         : "该文件没有明确的坐标系信息，请选择数据实际使用的坐标系。";
       modal.classList.add("show");
 
@@ -377,7 +392,9 @@
         else if (v === "__custom__") {
           const code = prompt("请输入 EPSG 编号（例如 4549、32650）：", "4326");
           if (!code) { resolve(null); return; }
-          const full = /^\d+$/.test(code.trim()) ? "EPSG:" + code.trim() : code.trim();
+          const match = code.trim().toUpperCase().match(/^(?:EPSG:)?(\d{3,6})$/);
+          if (!match) { alert("EPSG 编号格式无效，请输入纯数字或 EPSG:数字"); resolve(null); return; }
+          const full = "EPSG:" + match[1];
           CRSUtil.ensureDef(full).then(ok => {
             if (!ok) { alert(`无法获取 ${full} 的转换参数，将按原坐标显示`); resolve({ code: "EPSG:4326", name: "未转换（参数缺失）" }); }
             else resolve({ code: full, name: full });
