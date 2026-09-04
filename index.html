@@ -10,6 +10,7 @@
 </head>
 <body>
 
+<div id="amapBase" aria-hidden="true"></div>
 <div id="map"></div>
 
 <!-- ============ 顶栏 ============ -->
@@ -27,6 +28,7 @@
     <button class="btn active" data-base="imagery">影像</button>
     <button class="btn" data-base="street">街道</button>
     <button class="btn" data-base="osm">OSM</button>
+    <button class="btn" data-base="amap" title="使用高德 JS API 2.0">高德</button>
     <button class="btn" data-base="none">无底图</button>
     <button class="btn active" id="btnLabel" title="影像道路覆盖开关">路网</button>
   </div>
@@ -102,6 +104,41 @@
   </div>
 </div>
 
+<!-- ============ 高德地图配置 ============ -->
+<div class="modal" id="amapModal">
+  <div class="card">
+    <h3>连接高德地图</h3>
+    <div class="hint">
+      配置只保存在当前浏览器，不会写入项目或上传到 GitHub。正式部署推荐填写服务端安全代理；
+      明文安全密钥只适合个人试用。
+    </div>
+    <label class="modal-field">
+      <span>Web JS API Key</span>
+      <input id="amapKey" type="text" autocomplete="off" placeholder="在高德开放平台申请的 Key" />
+    </label>
+    <label class="modal-field">
+      <span>安全密钥 securityJsCode（本机试用）</span>
+      <input id="amapSecurity" type="password" autocomplete="new-password" placeholder="与 Key 配套的安全密钥" />
+    </label>
+    <div class="modal-or">或者</div>
+    <label class="modal-field">
+      <span>服务端安全代理（正式部署）</span>
+      <input id="amapServiceHost" type="url" autocomplete="off"
+             placeholder="https://example.com/_AMapService" />
+    </label>
+    <div class="hint compact">
+      高德采用 GCJ-02。本项目保持数据为 WGS84，并在切换高德底图时同步转换视图中心；
+      精密位置核验请使用 OSM 或无底图模式。
+    </div>
+    <div class="foot split">
+      <button class="btn ghost danger" id="amapClear">清除配置</button>
+      <span class="foot-spacer"></span>
+      <button class="btn ghost" id="amapCancel">取消</button>
+      <button class="btn primary" id="amapSave">保存并连接</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ============ 依赖库（本地副本，离线可用） ============ -->
@@ -115,6 +152,7 @@
 <script src="assets/js/projection.js"></script>
 <script src="assets/js/loader.js"></script>
 <script src="assets/js/exporter.js"></script>
+<script src="assets/js/amap.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>

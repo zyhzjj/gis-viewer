@@ -18,7 +18,7 @@
   - 内置国内常用坐标系（CGCS2000 三度带/六度带、UTM、WGS84 等），自动重投影到 WGS84 叠加到在线底图上
 - **图层管理**：开关、透明度、颜色、删除、缩放到范围；点要素可查看属性表
 - **图层导出**：矢量图层导出为 UTF-8 CSV（含 WGS84 坐标与 GeoJSON 几何），栅格图层导出为带 WGS84 地理参考的渲染预览 TIFF
-- **底图切换**：Sentinel-2 影像、OSM Japan 浅色街道、标准 OSM、无底图；影像可叠加透明路网，瓦片源连续失败时自动回退
+- **底图切换**：Sentinel-2 影像、OSM Japan 浅色街道、标准 OSM、高德地图、无底图；高德使用官方 JS API 2.0，其余瓦片源连续失败时自动回退
 - **配套分析脚本**：`analyze/kde_hotspot.py` 对任意点数据做高斯核密度热点分析，输出热力 GeoJSON 供前端叠加
 
 ---
@@ -49,6 +49,19 @@ python -m http.server 8080
 导出说明：CSV 中的 `__longitude` / `__latitude` 仅对点要素填写，线和面通过 `__geometry_geojson` 保留完整几何。栅格导出的是当前拉伸和色带生成的画布像元配色（保留 NoData 透明，但不叠加图层显示透明度），并带 EPSG:4326 地理范围；它用于交流和预览，不能替代保留原始科学像元值的 GeoTIFF。
 
 **坐标系说明**：Shapefile 的坐标本身不带坐标系含义，写在同名的 `.prj` 文件里。若缺少 `.prj`，地图会提示你手动选择数据实际使用的坐标系——选错会导致整体偏移，拿不准时先选「不做转换」看形状是否正确。
+
+---
+
+## 高德地图配置（可选）
+
+点击顶部「高德」，首次使用会要求填写高德开放平台的 **Web JS API Key**，以及以下两种鉴权方式之一：
+
+1. 本机试用：填写与 Key 配套的 `securityJsCode`。配置只保存在当前浏览器的 `localStorage`，不会提交到仓库，但明文方式不适合生产环境。
+2. 正式部署：填写以 `/_AMapService` 结尾的安全代理地址，把 `securityJsCode` 留在服务器端。
+
+高德采用 GCJ-02，本项目中的业务数据与导出结果继续保持 WGS84。高德模式通过 WGS84→GCJ-02 转换同步两个地图引擎的视图中心，适合浏览和展示；精密叠加核验应使用 OSM 或无底图模式。再次点击已经激活的「高德」可修改或清除浏览器内配置。
+
+申请与配置说明：[高德 JS API 2.0 加载](https://lbs.amap.com/api/javascript-api-v2/guide/abc/load)、[安全密钥使用](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode)。
 
 ---
 
@@ -86,7 +99,8 @@ python analyze/kde_hotspot.py
 - 矢量解析：[shpjs](https://github.com/calvinmetcalf/shapefile-js)（含 JSZip 解包）
 - 坐标系：[Proj4js](https://proj4js.org/)
 - 栅格解析：[GeoTIFF.js](https://geotiffjs.github.io/)
-- 所有依赖以本地副本形式放在 `assets/js/vendor/`，离线可用
+- 可选国内底图：[高德地图 JS API 2.0](https://lbs.amap.com/api/javascript-api-v2/summary)
+- 核心解析依赖以本地副本形式放在 `assets/js/vendor/`，离线可用；高德底图需要联网和开发者 Key
 
 ---
 
@@ -102,6 +116,7 @@ gis-viewer/
 │   └── js/
 │       ├── projection.js  # 坐标系识别与重投影
 │       ├── loader.js      # 多格式空间数据解析
+│       ├── amap.js        # 高德 JS API 加载、鉴权配置与视图同步
 │       ├── app.js         # 地图、图层管理、属性查看
 │       └── vendor/        # 第三方库本地副本
 ├── analyze/
@@ -118,6 +133,7 @@ gis-viewer/
 ```bash
 node tests/test_projection.js
 node tests/test_loader.js
+node tests/test_amap.js
 python -m unittest tests/test_kde.py
 ```
 

@@ -29,7 +29,11 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
-#map { position: absolute; inset: 0; background: #d8dee6; }
+#amapBase, #map { position: absolute; inset: 0; }
+#amapBase { z-index: 0; display: none; pointer-events: none; background: #d8dee6; }
+#amapBase.show { display: block; }
+#map { z-index: 1; background: #d8dee6; }
+body.amap-active #map { background: transparent !important; }
 
 .panel {
   background: var(--panel);
@@ -66,9 +70,11 @@ body {
 .btn.ghost { background: transparent; }
 .btn.sm { padding: 4px 8px; font-size: 11px; }
 
-.base-group { display: flex; gap: 4px; margin-left: auto; }
-.base-group .btn { padding: 6px 10px; font-size: 11.5px; }
+.base-group { display: flex; gap: 4px; margin-left: auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.base-group::-webkit-scrollbar { display: none; }
+.base-group .btn { padding: 6px 10px; font-size: 11.5px; flex: none; }
 .base-group .btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.base-group .btn:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ============================ 图层面板 ============================ */
 #sidePanel {
@@ -238,6 +244,18 @@ input[type=range]::-moz-range-thumb {
   font-size: 12.5px; font-family: inherit; color: var(--text); background: #fff; cursor: pointer;
 }
 .modal .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.modal .hint.compact { margin: 12px 0 0; font-size: 11px; color: var(--text-dim); }
+.modal-field { display: block; margin-top: 11px; }
+.modal-field span { display: block; margin-bottom: 5px; font-size: 11.5px; color: var(--text-sub); }
+.modal-field input {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border-2); border-radius: 8px;
+  font-size: 12.5px; font-family: var(--mono); color: var(--text); background: #fff; outline: none;
+}
+.modal-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.modal-or { margin: 10px 0 -2px; text-align: center; font-size: 10.5px; color: var(--text-dim); }
+.modal .foot.split { align-items: center; }
+.modal .foot-spacer { flex: 1; }
+.btn.danger { color: var(--danger); }
 
 .toast {
   position: absolute; left: 50%; bottom: 58px; transform: translate(-50%, 12px);
@@ -267,4 +285,11 @@ input[type=range]::-moz-range-thumb {
   #sidePanel { width: 250px; }
   #propPanel { width: 270px; }
   .base-group .btn { padding: 6px 8px; }
+}
+
+@media (max-width: 700px) {
+  #topbar { gap: 7px; padding: 0 9px; }
+  .brand { flex: none; }
+  .brand small { display: none; }
+  #btnImport { flex: none; padding-inline: 9px; }
 }

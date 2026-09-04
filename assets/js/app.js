@@ -45,27 +45,90 @@
     { maxZoom: 20, opacity: 0.8, attribution: '&copy; EOX, OpenStreetMap contributors' }
   );
 
+  const AMAP_ATTRIBUTION = '&copy; <a href="https://www.amap.com/" target="_blank" rel="noopener">高德地图</a>';
   let currentBase = "imagery";
   let showLabels = true;
+  let baseSwitchToken = 0;
+  let attributionControl = null;
+  let amapAttributed = false;
+  let lastAmapDraft = null;
 
-  function activateBase(key) {
-    if (!BASEMAPS[key] || key === "labels") return;
+  async function activateBase(key) {
+    if ((key !== "amap" && !BASEMAPS[key]) || key === "labels") return false;
+    const token = ++baseSwitchToken;
+
+    if (key === "amap") {
+      let config = AMapAdapter.getConfig();
+      if (!config) {
+        const picked = await askAmapConfig();
+        if (!picked || picked.cleared || token !== baseSwitchToken) return false;
+        config = picked;
+      }
+      showLoading("正在连接高德地图 …");
+      try {
+        await AMapAdapter.show({
+          containerId: "amapBase",
+          config,
+          center: map.getCenter(),
+          zoom: map.getZoom()
+        });
+      } catch (error) {
+        AMapAdapter.hide();
+        lastAmapDraft = config;
+        AMapAdapter.clearConfig();
+        toast(`高德地图连接失败：${error.message}；配置已保留，可再次点击修改`, "err");
+        return false;
+      } finally {
+        hideLoading();
+      }
+      if (token !== baseSwitchToken) { AMapAdapter.hide(); return false; }
+    } else {
+      AMapAdapter.hide();
+    }
+
     document.querySelectorAll("[data-base]").forEach(btn =>
       btn.classList.toggle("active", btn.dataset.base === key));
     Object.keys(BASEMAPS).forEach(k => {
       if (k !== "labels" && map.hasLayer(BASEMAPS[k])) map.removeLayer(BASEMAPS[k]);
     });
-    if (key !== "none") BASEMAPS[key].addTo(map);
+    if (key !== "none" && key !== "amap") BASEMAPS[key].addTo(map);
+
     currentBase = key;
-    // 透明路网始终压在底图之上。
-    if (showLabels && map.hasLayer(BASEMAPS.labels)) {
-      map.removeLayer(BASEMAPS.labels);
-      BASEMAPS.labels.addTo(map);
+    const isAmap = key === "amap";
+    document.body.classList.toggle("amap-active", isAmap);
+    el("btnLabel").disabled = isAmap;
+    el("btnLabel").classList.toggle("active", !isAmap && showLabels);
+    el("btnLabel").title = isAmap ? "高德底图已自带道路与标注" : "影像道路覆盖开关";
+
+    if (isAmap) {
+      if (map.hasLayer(BASEMAPS.labels)) map.removeLayer(BASEMAPS.labels);
+      if (attributionControl) {
+        Object.values(BASEMAPS).forEach(layer => {
+          const value = typeof layer.getAttribution === "function" ? layer.getAttribution() : "";
+          if (value) attributionControl.removeAttribution(value);
+        });
+      }
+      if (attributionControl && !amapAttributed) {
+        attributionControl.addAttribution(AMAP_ATTRIBUTION);
+        amapAttributed = true;
+      }
+      toast("已切换到高德底图；精密位置核验请使用 OSM 或无底图");
+    } else {
+      if (attributionControl && amapAttributed) {
+        attributionControl.removeAttribution(AMAP_ATTRIBUTION);
+        amapAttributed = false;
+      }
+      // 透明路网始终压在普通底图之上。
+      if (showLabels) {
+        if (map.hasLayer(BASEMAPS.labels)) map.removeLayer(BASEMAPS.labels);
+        BASEMAPS.labels.addTo(map);
+      }
     }
+    return true;
   }
 
   const failureCount = {};
-  const baseNames = { imagery: "影像", street: "街道", osm: "OSM", none: "无底图" };
+  const baseNames = { imagery: "影像", street: "街道", osm: "OSM", amap: "高德", none: "无底图" };
   [["imagery", "影像", "street"], ["street", "街道", "osm"], ["osm", "OSM", "none"]]
     .forEach(([key, name, fallback]) => {
       BASEMAPS[key].on("tileload", () => { failureCount[key] = 0; });
@@ -93,7 +156,7 @@
 
   L.control.zoom({ position: "topright" }).addTo(map);
   L.control.scale({ position: "bottomright", imperial: false, maxWidth: 130 }).addTo(map);
-  L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
+  attributionControl = L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
 
   /* =========================================================================
    *  2. 栅格图层（自定义 Layer：直接把 canvas 铺到地理范围上）
@@ -463,6 +526,48 @@
     });
   }
 
+  function askAmapConfig() {
+    return new Promise(resolve => {
+      const modal = el("amapModal");
+      const previous = AMapAdapter.getConfig() || lastAmapDraft || {};
+      el("amapKey").value = previous.key || "";
+      el("amapSecurity").value = previous.securityJsCode || "";
+      el("amapServiceHost").value = previous.serviceHost || "";
+      modal.classList.add("show");
+
+      function cleanup() {
+        modal.classList.remove("show");
+        el("amapSave").removeEventListener("click", onSave);
+        el("amapCancel").removeEventListener("click", onCancel);
+        el("amapClear").removeEventListener("click", onClear);
+      }
+      function onCancel() { cleanup(); resolve(null); }
+      function onClear() {
+        AMapAdapter.clearConfig();
+        lastAmapDraft = null;
+        cleanup();
+        resolve({ cleared: true });
+      }
+      function onSave() {
+        try {
+          const config = AMapAdapter.saveConfig({
+            key: el("amapKey").value,
+            securityJsCode: el("amapSecurity").value,
+            serviceHost: el("amapServiceHost").value
+          });
+          lastAmapDraft = config;
+          cleanup();
+          resolve(config);
+        } catch (error) {
+          toast(error.message, "err");
+        }
+      }
+      el("amapSave").addEventListener("click", onSave);
+      el("amapCancel").addEventListener("click", onCancel);
+      el("amapClear").addEventListener("click", onClear);
+    });
+  }
+
   /* =========================================================================
    *  9. 交互：拖放 / 按钮 / 底图 / 坐标
    * ======================================================================= */
@@ -481,13 +586,37 @@
 
   // 底图切换
   document.querySelectorAll("[data-base]").forEach(btn => {
-    btn.addEventListener("click", () => activateBase(btn.dataset.base));
+    btn.addEventListener("click", async () => {
+      const key = btn.dataset.base;
+      if (key === "amap" && currentBase === "amap") {
+        const picked = await askAmapConfig();
+        if (picked && picked.cleared) {
+          await activateBase("osm");
+          toast("已清除高德配置");
+        } else if (picked) {
+          toast("高德配置已保存；若更换了 Key，请刷新页面后生效");
+        }
+        return;
+      }
+      await activateBase(key);
+    });
   });
   el("btnLabel").addEventListener("click", () => {
+    if (currentBase === "amap") return;
     showLabels = !showLabels;
     el("btnLabel").classList.toggle("active", showLabels);
     if (showLabels) BASEMAPS.labels.addTo(map); else map.removeLayer(BASEMAPS.labels);
   });
+
+  let amapSyncFrame = null;
+  function scheduleAmapSync() {
+    if (currentBase !== "amap" || amapSyncFrame !== null) return;
+    amapSyncFrame = requestAnimationFrame(() => {
+      amapSyncFrame = null;
+      AMapAdapter.sync(map.getCenter(), map.getZoom());
+    });
+  }
+  map.on("move zoom resize", scheduleAmapSync);
 
   // 坐标显示
   map.on("mousemove", e => {
