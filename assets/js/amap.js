@@ -217,8 +217,10 @@
           zoom: view.zoom,
           zooms: [2, 20],
           animateEnable: false,
-          dragEnable: false,
-          zoomEnable: false,
+          // 容器已由 CSS 禁止指针事件；这里必须保持可移动、可缩放，
+          // 否则 AMap 也会拒绝 Leaflet 发出的程序化视图同步。
+          dragEnable: true,
+          zoomEnable: true,
           doubleClickZoom: false,
           keyboardEnable: false,
           scrollWheel: false,

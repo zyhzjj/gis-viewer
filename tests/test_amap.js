@@ -71,4 +71,37 @@ const view = test.normalizedView({ lng: 116.397389, lat: 39.908722 }, 30);
 assert.strictEqual(view.zoom, 20);
 assert.deepStrictEqual(view.center, beijing);
 
-console.log("OK amap.js");
+const containerClasses = new Set();
+const container = {
+  classList: {
+    add: value => containerClasses.add(value),
+    remove: value => containerClasses.delete(value)
+  }
+};
+let createdOptions = null;
+global.document = { getElementById: id => id === "amapBase" ? container : null };
+global.AMapLoader = {
+  load: async () => ({
+    Map: class {
+      constructor(_container, options) { createdOptions = options; }
+    }
+  })
+};
+
+(async () => {
+  await AMapAdapter.show({
+    containerId: "amapBase",
+    config: plaintext,
+    center: { lng: 116.397389, lat: 39.908722 },
+    zoom: 7
+  });
+  assert.strictEqual(createdOptions.dragEnable, true);
+  assert.strictEqual(createdOptions.zoomEnable, true);
+  assert.strictEqual(createdOptions.scrollWheel, false);
+  assert.strictEqual(createdOptions.touchZoom, false);
+  assert.strictEqual(containerClasses.has("show"), true);
+  console.log("OK amap.js");
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
