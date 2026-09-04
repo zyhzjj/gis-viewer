@@ -34,20 +34,20 @@
       }
     ),
     street: L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      "https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
       {
-        subdomains: "abcd", maxZoom: 20,
-        attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        subdomains: "abc", maxZoom: 20,
+        attribution: '&copy; OpenStreetMap contributors, tiles by Humanitarian OpenStreetMap Team'
       }
     ),
     osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }),
     none: L.tileLayer("")     // 空白底图，便于只看自己的数据
   };
-  // 地名注记层，独立于底图层，可单独开关
+  // 透明道路覆盖层，独立于底图层，可单独开关
   BASEMAPS.labels = L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png",
-    { subdomains: "abcd", maxZoom: 20, opacity: 0.9, attribution: '&copy; CARTO' }
+    "https://tiles.maps.eox.at/wmts/1.0.0/streets_3857/default/g/{z}/{y}/{x}.png",
+    { maxZoom: 20, opacity: 0.8, attribution: '&copy; EOX, OpenStreetMap contributors' }
   );
 
   let currentBase = "imagery";
@@ -62,7 +62,7 @@
     });
     if (key !== "none") BASEMAPS[key].addTo(map);
     currentBase = key;
-    // 注记始终压在底图之上。
+    // 透明路网始终压在底图之上。
     if (showLabels && map.hasLayer(BASEMAPS.labels)) {
       map.removeLayer(BASEMAPS.labels);
       BASEMAPS.labels.addTo(map);
@@ -88,7 +88,7 @@
       showLabels = false;
       map.removeLayer(BASEMAPS.labels);
       document.getElementById("btnLabel").classList.remove("active");
-      toast("地名注记连接失败，已自动关闭注记", "err");
+      toast("道路覆盖层连接失败，已自动关闭", "err");
     }
   });
   BASEMAPS.labels.on("tileload", () => { failureCount.labels = 0; });
