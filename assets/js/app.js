@@ -33,13 +33,6 @@
         attribution: 'Sentinel-2 cloudless &copy; <a href="https://s2maps.eu">EOX</a>, Copernicus 2020'
       }
     ),
-    street: L.tileLayer(
-      "https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
-      {
-        subdomains: "abc", maxZoom: 20,
-        attribution: '&copy; OpenStreetMap contributors, tiles by Humanitarian OpenStreetMap Team'
-      }
-    ),
     osm: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }),
     none: L.tileLayer("")     // 空白底图，便于只看自己的数据
@@ -70,8 +63,8 @@
   }
 
   const failureCount = {};
-  const baseNames = { imagery: "影像", street: "街道", osm: "OSM", none: "无底图" };
-  [["imagery", "影像", "street"], ["street", "街道", "osm"], ["osm", "OSM", "none"]]
+  const baseNames = { imagery: "影像", osm: "OSM", none: "无底图" };
+  [["imagery", "影像", "osm"], ["osm", "OSM", "none"]]
     .forEach(([key, name, fallback]) => {
       BASEMAPS[key].on("tileload", () => { failureCount[key] = 0; });
       BASEMAPS[key].on("tileerror", () => {
